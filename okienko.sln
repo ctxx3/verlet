@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.4.33205.214
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "okienko", "okienko\okienko.vcxproj", "{F6916EC2-8283-4F39-85C2-D7559D590874}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Debug|x64.ActiveCfg = Debug|x64
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Debug|x64.Build.0 = Debug|x64
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Debug|x86.ActiveCfg = Debug|Win32
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Debug|x86.Build.0 = Debug|Win32
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Release|x64.ActiveCfg = Release|x64
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Release|x64.Build.0 = Release|x64
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Release|x86.ActiveCfg = Release|Win32
+		{F6916EC2-8283-4F39-85C2-D7559D590874}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {BD2C5979-123D-4871-9B31-2CF2D88F12CD}
+	EndGlobalSection
+EndGlobal
