@@ -1,31 +1,41 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/System.hpp>
 #include <random>
-#include <thread>
-#include <iostream>
 #include "kulka.cpp"
+#include <future>
+#include <iostream>
+#include <fstream>
 
 using namespace sf;
 
-const int steps = 4;
-
+const int steps = 9;
+const int num_balls = 6000;
+Color colors[6000];
+const Vector2u w_size = { 640,640 };
 std::vector<kulka> circles;
-
+std::vector<std::vector<std::vector<kulka*>>> grid;
 int frames = 0;
-bool running = true;
 
-int size = 3;
-int grid_size = 6;
+//std::vector <std::mutex> mm(num_balls+1);
+
+float size = 3;
+int grid_size = 1 + size * 2;
+int numCellsX;
+int numCellsY;
+int threadX;
+int threadY;
+int tX = 4;
+int tY = 4;
+std::vector<std::future<void>> futures(tX*tY);
+Uint16 grid_lookup[800];
 
 void collide(kulka* a, kulka* b) {
-	Vector2f collision_axis = Vector2f(
-		(*a).position_current.x - (*b).position_current.x,
-		(*a).position_current.y - (*b).position_current.y
-	);
-	float dist = sqrt((collision_axis.x * collision_axis.x) + (collision_axis.y * collision_axis.y));
+	float collision_axis_x = (*a).position_current.x - (*b).position_current.x;
+	float collision_axis_y = (*a).position_current.y - (*b).position_current.y;
+	float dist = sqrt((collision_axis_x * collision_axis_x) + (collision_axis_y * collision_axis_y));
 	float main_dist = (*a).radius + (*b).radius;
 	if (dist < main_dist) {
-		Vector2f n = Vector2f(collision_axis.x / dist, collision_axis.y / dist);
+		Vector2f n = Vector2f(collision_axis_x / dist, collision_axis_y / dist);
 		float delta = main_dist - dist;
 		(*a).position_current.x += 0.5f * delta * n.x;
 		(*a).position_current.y += 0.5f * delta * n.y;
@@ -34,44 +44,159 @@ void collide(kulka* a, kulka* b) {
 	}
 }
 
+void worker(int startX, int startY, int endX, int endY)
+{
+	for (int i = startX; i < endX; ++i) {
+		for (int j = startY; j < endY; ++j) {
+			for (auto& obj : grid[i][j]) {
+				for (int ii = std::max(i - 1, 0); ii <= std::min(i + 1, numCellsX - 1); ++ii) {
+					for (int jj = std::max(j - 1, 0); jj <= std::min(j + 1, numCellsY - 1); ++jj) {
+						for (auto& other : grid[ii][jj]) {
+							if (obj == other) {
+								continue;
+							}
+							collide(obj, other);
+						}
+					}
+				}
+				obj->applyForce(Vector2f(0, 1000));
+				obj->floor(w_size.x,w_size.y);
+			}
+		}
+	}
+}
+
+void updatePhysics(float dt) {
+	for (int k = 0; k < steps; k++)
+	{
+		//clear grid
+		for (int x = 0; x < grid.size(); x++)
+		{
+			for (int y = 0; y < grid[x].size(); y++)
+			{
+				grid[x][y].clear();
+			}
+		}
+		// Populate grid
+		for (auto& ball : circles){
+			Uint16 posX = (Uint16)ball.position_current.x;
+			Uint16 posY = (Uint16)ball.position_current.y;
+			if(posX < w_size.x && posY < w_size.y)
+				grid[grid_lookup[posX]][grid_lookup[posY]].push_back(&ball);
+			else
+				grid[0][0].push_back(&ball);
+		}
+		//callculate collisions and constraints async
+		int futureidx = 0;
+		for (int x = 0; x < tX; x++)
+		{
+			for (int y = 0; y < tY; y++) {
+				futures[futureidx++] = std::async(std::launch::async,worker, threadX * x, threadY * y, threadX * (x+1), threadY * (y+1));
+				//worker(threadX * x, threadY * y, threadX * (x + 1), threadY * (y + 1));
+			}
+		}
+		////wait for futures to finish
+		for (auto& function : futures)
+		{
+			function.wait();
+		}
+		//update physics
+		for (int i = 0; i < circles.size(); i++)
+		{
+			circles[i].update((dt / steps));
+		}
+	}
+}
+
+sf::Color hsv(int hue, float sat, float val)
+{
+	hue %= 360;
+	while (hue < 0) hue += 360;
+
+	if (sat < 0.f) sat = 0.f;
+	if (sat > 1.f) sat = 1.f;
+
+	if (val < 0.f) val = 0.f;
+	if (val > 1.f) val = 1.f;
+
+	int h = hue / 60;
+	float f = float(hue) / 60 - h;
+	float p = val * (1.f - sat);
+	float q = val * (1.f - sat * f);
+	float t = val * (1.f - sat * (1 - f));
+
+	switch (h)
+	{
+	default:
+	case 0:
+	case 6: return sf::Color(val * 255, t * 255, p * 255);
+	case 1: return sf::Color(q * 255, val * 255, p * 255);
+	case 2: return sf::Color(p * 255, val * 255, t * 255);
+	case 3: return sf::Color(p * 255, q * 255, val * 255);
+	case 4: return sf::Color(t * 255, p * 255, val * 255);
+	case 5: return sf::Color(val * 255, p * 255, q * 255);
+	}
+}
+
+Uint8 pixels[640 * 640 * 4];
+Texture xd;
+Sprite buffer(xd);
 
 
 int main()
 {
 	//srand(time(NULL));
-	srand(1);
 	ContextSettings settings;
 	settings.antialiasingLevel = 4;
 
-	RenderWindow window(VideoMode(640, 640), "Balls", Style::Close, settings);
+	RenderWindow window(VideoMode(w_size.x, w_size.y), "Balls", Style::Close, settings);
 	window.setFramerateLimit(144);
-	Vector2u w_size = window.getSize();
-	Vector2i n_size = Vector2i(w_size.x / grid_size,w_size.y / grid_size);
-	//std::cout << n_size.x << "  " << n_size.y << "\n";
+	Vector2i n_size = Vector2i(std::ceil(w_size.x / grid_size),w_size.y / grid_size);
 	Clock clock;
-	//std::vector<std::thread> threads;
-	//CircleShape kulko = CircleShape(240, 60);
-	//kulko.move(0, 0);
-	float dt;// = 1 / 144.0f;
-	//std::vector<std::vector<int>> grid;
-	//grid.resize(n_size.x * n_size.y, std::vector<int>(0, 0));
-	//grid.resize(16, std::vector<int>(0, 0));
-	//for (int i = 0; i < 16; i++)
-	//{
-	//    threads.push_back(std::thread(updatePos, (num / 16) * i, num / 16 + ((num / 16) * i)));
+	float dt;
+
+	numCellsX = std::ceil(w_size.x / grid_size)+1;
+	numCellsY = std::ceil(w_size.y / grid_size)+1;
+	threadX = numCellsX / tX;
+	threadY = numCellsY / tY;
+	std::vector<std::vector<std::vector<kulka*>>> list(numCellsX, std::vector<std::vector<kulka*>>(numCellsY));
+	grid.swap(list);
+
+	for (int i = 0; i < 640; i++)
+	{
+		grid_lookup[i] = std::floor(i / grid_size);
+	}
+
+	//std::string str;
+
+	//std::ifstream MyReadFile("xd2.txt");
+	//std::istringstream iss();
+	//int idx = 0;
+	//while (getline(MyReadFile, str)) {
+	//	int start = 0;
+	//	int end = str.find(" ");
+	//	int vals[3];
+	//	for (int i = 0; i < 2; i++) {
+	//		vals[i] = std::stoi(str.substr(start, end - start));
+	//		start = end + 1;
+	//		end = str.find(" ", start);
+	//	}
+	//	vals[2] = std::stoi(str.substr(start, end - start));
+	//	colors[idx++] = Color(vals[0], vals[1], vals[2]);
 	//}
 
+	xd.create(640, 640);
 
 	while (window.isOpen())
 	{
 		dt = 0.007f;
-		int checks = 0;
+		//dt = 0.016f;
 		//float dt = clock.restart().asMicroseconds() / 1000000.0f;
 		Event event;
 		while (window.pollEvent(event))
 		{
 			if (event.type == Event::Closed) {
-				running = false;
+				//running = false;
 				//for (int i = 0; i < threads.size(); i++) {
 				//    threads[i].join();
 				//}
@@ -79,168 +204,43 @@ int main()
 			}
 			else if (event.type == Event::MouseButtonPressed) {
 				dt += 0.06;
+
+			}
+			else if (event.type == Event::KeyPressed) {
+				if (event.key.code == sf::Keyboard::N) {
+					std::ofstream plik("xd.txt");
+					for (int i = 0; i < circles.size(); i++)
+					{
+						plik << circles[i].position_current.x << " " << circles[i].position_current.y << "\n";
+					}
+					plik.close();
+				}
 			}
 
 		}
 		window.clear(Color(18, 18, 18));
 
-		if (circles.size() < 2000) {
-			for (int i = 0; i < 5; i++)
+		if (circles.size() < num_balls) {
+			for (int i = 0; i < 20; i++)
 			{
-				kulka wow = kulka(240 + (rand() % 8), 240 + (rand() % 8), size);
-				circles.push_back(wow);
+				kulka temp = kulka(10,80 + i*6, size, hsv(circles.size() / 20, .85, 1));
+				//kulka temp = kulka(10, 80 + i * 6, size, colors[circles.size()]);
+				temp.applyForce({ 1500000,500000 });
+				circles.push_back(temp);
 			}
 		}
+		updatePhysics(dt);
 
-
-
-		for (int k = 0; k < steps; k++)
-		{
-			//for (int i = 0; i < grid.size(); i++)
-			//{
-			//	grid[i].clear();
-			//}
-			//for (int i = 0; i < circles.size(); i++) {
-			//	circles[i].applyForce(Vector2f(0, 1000));
-			//	circles[i].floor(w_size.x, w_size.y);
-			//	if (!isnan(circles[i].position_current.x)) {
-			//		circles[i].grid_idx = circles[i].position_current.x / grid_size;
-			//		circles[i].grid_idy = circles[i].position_current.y / grid_size;
-			//		//std::cout << circles[i].grid_idx << '\n';
-			//		//int id = (yd * n_size.x) + xd;
-			//		//std::cout << i << "  " << x << "  " << y << "  " << id << '\n';
-			//		//grid[id].push_back(i);
-			//	}
-			//}
-
-			//for (int i = 0; i < circles.size(); i++)
-			//{
-			//	for (int j = i + 1; j < circles.size(); j++)
-			//	{
-			//		int diffx = circles[i].grid_idx - circles[j].grid_idx;
-			//		diffx = ((diffx >> 31) | 1) * diffx;
-			//		if (diffx == 0 || diffx == 1) {
-			//			int diffy = circles[i].grid_idy - circles[j].grid_idy;
-			//			diffy = ((diffx >> 31) | 1) * diffx;
-			//			//int diffy = abs(circles[i].grid_idy - circles[j].grid_idy);
-			//			if (diffy == 0 || diffy == 1) {
-			//				collide(&circles[i], &circles[j]);
-			//				checks++;
-
-			//			}
-			//		}
-			//	}
-			//}
-
-
-			//for (int y = 0; y < 4; y++)
-			//{
-			//	for (int x = 0; x < 4; x++)
-			//	{
-			//		int current_cell = (y * 4) + x;
-			//		for (int dy = -1; dy <= 1; dy++)
-			//		{
-			//			for (int dx = -1; dx <= 1; dx++)
-			//			{
-			//				if (y + dy >= 0 && x + dx >= 0 && y + dy < 4 && x + dx < 4) {
-			//					int other_cell = ((y + dy) * 4) + (x + dx);
-			//					for (int o1 : grid[current_cell]) {
-			//						for (int o2 : grid[other_cell])
-			//						{
-			//							if (o1 != o2) {
-			//								//std::cout << "kolizja!\n";
-			//								collide(&circles[o1], &circles[o2]);
-			//							}
-			//						}
-			//					}
-			//				}
-
-			//			}
-			//		}
-			//	}
-			//}
-			// 
-			//for (int y = 0; y < n_size.y; y++)
-			//{
-			//	for (int x = 0; x < n_size.x; x++)
-			//	{
-			//		int current_cell = (y * n_size.x) + x;
-			//		for (int dy = -1; dy <= 1; dy++)
-			//		{
-			//			for (int dx = -1; dx <= 1; dx++)
-			//			{
-			//				if (y + dy >= 0 && x + dx >= 0 && y + dy < n_size.y && x + dx < n_size.x) {
-			//					int other_cell = ((y + dy) * n_size.x) + (x + dx);
-			//					for (int o1 : grid[current_cell]) {
-			//						for (int o2 : grid[other_cell])
-			//						{
-			//							if (o1 != o2) {
-			//								//std::cout << "kolizja!\n";
-			//								collide(&circles[o1], &circles[o2]);
-			//							}
-			//						}
-			//					}
-			//				}
-
-			//			}
-			//		}
-			//	}
-			//}
-			for (int i = 0; i < circles.size(); i++)
-			{
-				circles[i].applyForce(Vector2f(0, 1000));
-				circles[i].floor(w_size.x, w_size.y);
-			}
-
-			for (int i = 0; i < circles.size(); i++)
-			{
-				for (int j = i+1; j < circles.size(); j++)
-				{
-					collide(&circles[i], &circles[j]);
-					checks++;
-				}
-			}
-
-			for (int i = 0; i < circles.size(); i++)
-			{
-				circles[i].update((dt / steps));
-			}
-		}
 		//window.draw(kulko);
-		for (int i = 0; i < circles.size(); i++)
+		for (auto& ball : circles)
 		{
-			window.draw(circles[i].ball);
+			window.draw(ball.ball);
 		}
-		std::cout << checks << '\n';
+		window.draw(buffer);
+
 		window.display();
 		frames++;
 	}
 
 	return 0;
 }
-
-//void updatePos(int start, int end) {
-//    int last_frame = -1;
-//    while (running) {
-//        if (frames != last_frame) {
-//            for (int i = start; i < end; i++)
-//            {
-//                circles[i].ball.move(x_off[i], y_off[i]);
-//                Vector2f pos = circles[i].ball.getPosition();
-//
-//                if (pos.x <= 0 || pos.x + 10 >= 860) {
-//                    x_off[i] *= -1;
-//                }
-//                if (pos.y <= 0 || pos.y + 10 >= 860) {
-//                    y_off[i] *= -1;
-//                }
-//            }
-//            last_frame = frames;
-//        }
-//        else {
-//            auto ms = std::chrono::steady_clock::now() + std::chrono::milliseconds(5);
-//            std::this_thread::sleep_until(ms);
-//        }
-//    }
-//
-//}
