@@ -12,7 +12,7 @@ public:
 
 	Vector2f position_current;
 	Vector2f position_old;
-	// std::mutex mtx;
+	float maxSpeed = 4.0f;
 
 	float radius = 5;
 
@@ -41,6 +41,7 @@ public:
 		position_old.x = position_current.x;
 		position_old.y = position_current.y;
 
+		limitVelocity();
 		position_current.x = position_current.x + velocity.x + acceleration.x * dt * dt;
 		position_current.y = position_current.y + velocity.y + acceleration.y * dt * dt;
 
@@ -64,23 +65,35 @@ public:
 		}
 	}
 
-	void floor(int width, int height)
+	void wallConstraint(int width, int height)
 	{
-		if (position_current.x < radius)
-		{
+		if (position_current.x - radius < 0)
 			position_current.x = radius;
-		}
-		else if (position_current.x > width - radius)
-		{
-			position_current.x = width - radius;
-		}
-		if (position_current.y < radius)
-		{
+		if (position_current.y - radius < 0)
 			position_current.y = radius;
-		}
-		else if (position_current.y > height - radius)
-		{
+		if (position_current.x + radius > width)
+			position_current.x = width - radius;
+		if (position_current.y + radius > height)
 			position_current.y = height - radius;
+	}
+	void limitVelocity()
+	{
+		if (velocity.x > maxSpeed)
+		{
+			velocity.x = maxSpeed;
+		}
+		else if (velocity.x < -maxSpeed)
+		{
+			velocity.x = -maxSpeed;
+		}
+
+		if (velocity.y > maxSpeed)
+		{
+			velocity.y = maxSpeed;
+		}
+		else if (velocity.y < -maxSpeed)
+		{
+			velocity.y = -maxSpeed;
 		}
 	}
 

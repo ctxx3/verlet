@@ -10,7 +10,7 @@ class ThreadPool
 {
 public:
     // Constructor starts up a specified number of worker threads and starts them to wait for tasks
-    ThreadPool(size_t threads) : stop(false)
+    ThreadPool(size_t threads) : stop(false), activeTasks(0)
     {
         for (size_t i = 0; i < threads; ++i)
             workers.emplace_back([this]
@@ -50,12 +50,25 @@ public:
             // Don't allow enqueueing after stopping the pool
             if (stop)
                 throw std::runtime_error("enqueue on stopped ThreadPool");
-            tasks.emplace([task]()
-                          { (*task)(); });
+
+            activeTasks++;
+
+            tasks.emplace([task, this]()
+                          {
+                              (*task)();
+                              activeTasks--;
+                          });
         }
         // Notify one waiting thread that there is a new task to execute
         condition.notify_one();
         return res;
+    }
+    void wait()
+    {
+        while (activeTasks > 0)
+        {
+            std::this_thread::yield(); // Yield this thread's time slice to other threads
+        }
     }
 
     // Destructor notifies all threads to stop and waits for all of them to join
@@ -80,4 +93,7 @@ private:
     std::condition_variable condition;
     // Indicates that the pool is stopping
     bool stop;
+
+    // Active tasks
+    std::atomic<int> activeTasks;
 };

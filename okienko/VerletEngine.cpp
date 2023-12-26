@@ -13,7 +13,7 @@ public:
 	std::unique_ptr<ThreadPool> pool;
 	Vector2u w_size;
 	static constexpr int num_balls = 12000;
-	static constexpr int steps = 9;
+	static constexpr int steps = 8;
 	static constexpr float size = 2;
 
 	VerletEngine(Vector2u window_size)
@@ -32,6 +32,8 @@ public:
 		numCellsY = std::ceil(w_size.y / grid_size) + 1;
 
 		threadCells = numCellsX * numCellsY / numThreads;
+
+		grid = std::vector<std::vector<std::vector<Ball*>>>(numCellsX, std::vector<std::vector<Ball*>>(numCellsY));
 
 		std::vector<std::vector<std::vector<Ball *>>> list(numCellsX, std::vector<std::vector<Ball *>>(numCellsY));
 		grid.swap(list);
@@ -67,27 +69,44 @@ public:
 				else
 					grid[0][0].push_back(ballPtr.get());
 			}
-			// callculate collisions and constraints async
+
+
+			// calculate collisions and constraints async for even cells
 			for (int i = 0; i < numThreads; i++)
 			{
 				int startCell = i * threadCells;
-				int endCell = (i + 1) * threadCells;
-				pool->enqueue(&VerletEngine::worker, this, startCell, endCell);
+				int endCell = std::min((i + 1) * threadCells, numCellsX * numCellsY);
+				if (startCell % 2 == 0) // if startCell is even
+				{
+					pool->enqueue(&VerletEngine::worker, this, startCell, endCell);
+				}
 			}
-			// update physics
+			// wait for all tasks to finish
+			pool->wait();
+
+			// calculate collisions and constraints async for odd cells
+			for (int i = 0; i < numThreads; i++)
+			{
+				int startCell = i * threadCells;
+				int endCell = std::min((i + 1) * threadCells, numCellsX * numCellsY);
+				if (startCell % 2 != 0) // if startCell is odd
+				{
+					pool->enqueue(&VerletEngine::worker, this, startCell, endCell);
+				}
+			}
+			// wait for all tasks to finish
+			pool->wait();
+
 			for (auto &ballPtr : circles)
 			{
+				// Physics update
 				ballPtr->update((dt / steps));
 
+				// Gravity
 				ballPtr->applyForce(Vector2f(0, 1000));
-				if (ballPtr->position_current.x - ballPtr->radius < 0)
-					ballPtr->position_current.x = ballPtr->radius;
-				if (ballPtr->position_current.y - ballPtr->radius < 0)
-					ballPtr->position_current.y = ballPtr->radius;
-				if (ballPtr->position_current.x + ballPtr->radius > w_size.x)
-					ballPtr->position_current.x = w_size.x - ballPtr->radius;
-				if (ballPtr->position_current.y + ballPtr->radius > w_size.y)
-					ballPtr->position_current.y = w_size.y - ballPtr->radius;
+
+				// Wall collisions
+				ballPtr->wallConstraint(w_size.x, w_size.y);
 			}
 		}
 	}
@@ -102,24 +121,24 @@ private:
 	std::vector<Uint16> grid_lookup;
 	std::vector<std::future<void>> futures;
 
-	int frames = 0;
 	int numCellsX;
 	int numCellsY;
 
-	void collide(Ball *a, Ball *b)
+	void collide(Ball* a, Ball* b)
 	{
 		float collision_axis_x = (*a).position_current.x - (*b).position_current.x;
 		float collision_axis_y = (*a).position_current.y - (*b).position_current.y;
-		float dist = sqrt((collision_axis_x * collision_axis_x) + (collision_axis_y * collision_axis_y));
+		float dist_sq = (collision_axis_x * collision_axis_x) + (collision_axis_y * collision_axis_y);
 		float main_dist = (*a).radius + (*b).radius;
-		if (dist < main_dist)
+		if (dist_sq < main_dist * main_dist)
 		{
+			float dist = sqrt(dist_sq);
 			Vector2f n = Vector2f(collision_axis_x / dist, collision_axis_y / dist);
 			float delta = main_dist - dist;
 
+			// Move the balls apart
 			(*a).position_current.x += 0.5f * delta * n.x;
 			(*a).position_current.y += 0.5f * delta * n.y;
-
 			(*b).position_current.x -= 0.5f * delta * n.x;
 			(*b).position_current.y -= 0.5f * delta * n.y;
 		}

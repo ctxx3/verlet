@@ -8,7 +8,7 @@
 
 using namespace sf;
 
-Vector2u w_size = {640, 640};
+Vector2u w_size = {800, 800};
 VerletEngine engine(w_size);
 const int frameRate = 144;
 const float dt = 1.0f / frameRate;
@@ -22,7 +22,7 @@ int main()
 	ContextSettings settings;
 	settings.antialiasingLevel = 4;
 
-	RenderWindow window(VideoMode(w_size.x, w_size.y), "Balls", Style::Default, settings);
+	RenderWindow window(VideoMode(w_size.x, w_size.y), "Balls", Style::Close, settings);
 	window.setFramerateLimit(144);
 
 	Clock clock;
